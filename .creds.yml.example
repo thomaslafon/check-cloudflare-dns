@@ -1,0 +1,3 @@
+acquia_api_v2:
+    key_id: ac_key
+    secret: ac_secret

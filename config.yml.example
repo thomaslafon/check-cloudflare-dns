@@ -1,0 +1,9 @@
+emails: # Emails to send reports to
+    #- email 1
+    #- email 2
+patterns_to_ignore: # Script won't try to resolve IP and check DNS
+    - acsitefactory.com # don't remove this one
+    - acquia-sites.com # don't remove this one
+    # - example.com # If you have factory domains, you may want to ignore them
+patterns_to_check: # Useful when all your domains contains a specific pattern, all other domains will be ignored (example : www)
+    #- www

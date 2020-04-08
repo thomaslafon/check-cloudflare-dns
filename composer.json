@@ -1,0 +1,8 @@
+{
+    "name":"thomaslafon/check-cloudflare-dns",
+    "description":"Verify that DNS are pointing to Cloudflare",
+    "require": {
+        "league/oauth2-client": "^2.4",
+        "symfony/yaml": "^5.0"
+    }
+}

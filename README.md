@@ -7,12 +7,11 @@ Checks if a domain points to domain.cdn.cloudflare.net CNAME
 
 ## Installation
 
-### composer install
 ```composer
 composer install
 ```
 
-### Setup credentials and configuration
+## Setup credentials and configuration
 
 * copy .creds.yml.example to .creds.yml and set Acquia Cloud V2 credentials
 * config.yml.example to config.yml and set at least email addresses to send report to

@@ -1,3 +1,4 @@
 .creds.yml
 config.yml
 vendor/
+*.txt

@@ -21,26 +21,12 @@ use League\OAuth2\Client\Provider\Exception\IdentityProviderException;
 use GuzzleHttp\Client;
 use Symfony\Component\Yaml\Yaml;
 
-// Getting config
-$docroot_name = $_SERVER["AH_SITE_NAME"] . "." . $_SERVER["AH_SITE_ENVIRONMENT"];
-
-echo "Getting Configuration...\n";
-$creds_file = __DIR__ . DIRECTORY_SEPARATOR . '.creds.yml';
-if (file_exists($creds_file)) {
-  $creds_values = Yaml::parseFile($creds_file);
-  
-  $ac_key = $creds_values["acquia_api_v2"]["key_id"];
-  $ac_sec = $creds_values["acquia_api_v2"]["secret"];
-}
-else {
-  print(".creds.yml config file doesn't exist. Please rename .creds.yml.example to .creds.yml and setup values");
-  exit(1);
-}
-
+// Config File
 $config_file = __DIR__ . DIRECTORY_SEPARATOR . 'config.yml';
 if (file_exists($config_file)) {
   $config_values = Yaml::parseFile($config_file);
   
+  $debug_only = $config_values["debug_only"];
   $emails = $config_values["emails"];
   $patterns_to_ignore = $config_values["patterns_to_ignore"];
   $patterns_to_check = $config_values["patterns_to_check"];
@@ -50,44 +36,79 @@ else {
   exit(1);
 }
 
-// Checks before executing script
-// 1. We need an Acquia Cloud application_id
-// We can retrieve it from $_SERVER["AH_APPLICATION_UUID"]
-if (isset($_SERVER["AH_APPLICATION_UUID"])) {
-    $application_id = $_SERVER["AH_APPLICATION_UUID"];
-}
-elseif (isset($config_values["application_id"])) {
-    $application_id = $config_values["application_id"];
-}
-else {
-    exit("No Acquia Cloud application_id found or defined! Exiting...");
-}
+
+// Finding Method
+// 1. TXT file
+// 2. Acquia Cloud environment
+if (!isset($_SERVER["AH_SITE_NAME"])) { // 1. Not in an Acquia Env, assuming TXT file domains.txt
+    echo "NOT in an Acquia Environment, assuming TXT file\n\n";
+
+    if(file_exists("./domains.txt")) {
+        $domains = file("domains.txt", FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    } else if(isset($argv[1]) && file_exists($argv[1])) {
+        $domains = file($argv[1], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    } else {
+        echo "You must use a 'domains.txt' file containing all the domains you want to check, or add a custom file as first argument: check-cloudflare-dns.php myfile.txt\n\n";
+        exit(1);
+    }
+} else { // 2. In an Acquia env
+
+    // Getting config
+    $docroot_name = $_SERVER["AH_SITE_NAME"] . "." . $_SERVER["AH_SITE_ENVIRONMENT"];
+
+    echo "Getting Configuration...\n";
+    $creds_file = __DIR__ . DIRECTORY_SEPARATOR . '.creds.yml';
+    if (file_exists($creds_file)) {
+      $creds_values = Yaml::parseFile($creds_file);
+      
+      $ac_key = $creds_values["acquia_api_v2"]["key_id"];
+      $ac_sec = $creds_values["acquia_api_v2"]["secret"];
+    }
+    else {
+      print(".creds.yml config file doesn't exist. Please rename .creds.yml.example to .creds.yml and setup values");
+      exit(1);
+    }
+
+    // Checks before executing script
+    // 1. We need an Acquia Cloud application_id
+    // We can retrieve it from $_SERVER["AH_APPLICATION_UUID"]
+    if (isset($_SERVER["AH_APPLICATION_UUID"])) {
+        $application_id = $_SERVER["AH_APPLICATION_UUID"];
+    }
+    elseif (isset($config_values["application_id"])) {
+        $application_id = $config_values["application_id"];
+    }
+    else {
+        exit("No Acquia Cloud application_id found or defined! Exiting...");
+    }
 
 
-// Init Class
-$app = new AcquiaCloudApiV2($ac_key, $ac_sec);
+    // Init Class
+    $app = new AcquiaCloudApiV2($ac_key, $ac_sec);
 
-// Parsing environments
-echo "Parsing Environments\n";
-echo "Retrieving domains for " . $_SERVER["AH_SITE_NAME"] . "." . $_SERVER["AH_SITE_ENVIRONMENT"] . "\n";
-$environments = $app->get_acquia_environments($application_id);
+    // Parsing environments
+    echo "Parsing Environments\n";
+    echo "Retrieving domains for " . $_SERVER["AH_SITE_NAME"] . "." . $_SERVER["AH_SITE_ENVIRONMENT"] . "\n";
+    $environments = $app->get_acquia_environments($application_id);
 
-foreach ($environments as $environment) {
+    foreach ($environments as $environment) {
 
-    $environment_ah_id = $environment[0];
-    $environment_ah_site = $environment[1];
-    $environment_domains = $environment[4];
+        $environment_ah_id = $environment[0];
+        $environment_ah_site = $environment[1];
+        $environment_domains = $environment[4];
 
-    //echo $environment_ah_site ." / ". $_SERVER["AH_SITE_ENVIRONMENT"];
+        //echo $environment_ah_site ." / ". $_SERVER["AH_SITE_ENVIRONMENT"];
 
-    if ($environment_ah_site == $_SERVER["AH_SITE_ENVIRONMENT"]) {
-        $domains = $environment_domains;
+        if ($environment_ah_site == $_SERVER["AH_SITE_ENVIRONMENT"]) {
+            $domains = $environment_domains;
+        }
+    }
+
+    if (!isset($domains)) {
+        exit("Script was not able to retrieve domains. Exiting...");
     }
 }
 
-if (!isset($domains)) {
-    exit("Script was not able to retrieve domains. Exiting...");
-}
 
 // Build an aray of domains_to_check, forcing only-include ones, and removing excluded pattern
 $domains_to_check = array();
@@ -155,7 +176,7 @@ foreach ($domains_to_check as $domain) {
             if (empty($check_ip_difference)) {
                 $zones_baredomain_ok[$domain] = "Points correctly to Cloudflare IPs";
             } else {
-                $zones_baredomain_nok[$domain] = "Should have A records to ".implode(',', $cf_ips);
+                $zones_baredomain_nok[$domain] = "Should have A records to ".implode(',', $cf_ips). "\n  It's currently pointing to ".implode(',', $bd_ips);
             }
         } else {
            $zones_baredomain_nok_nocf[$domain] = "Looks like Cloudflare has no IP adresses on $domain".".cdn.cloudflare.net";
@@ -228,13 +249,25 @@ if(count($zones_cname_ok)) {
 
 // SEND EMAIL
 $email_to = implode(',', $emails);
-$email_subject = "[".$_SERVER["AH_SITE_NAME"] . "." . $_SERVER["AH_SITE_ENVIRONMENT"]."]"." - Cloudflare DNS configuration";
-
-if(mail($email_to, $email_subject, $email_body)) {
-    echo "email sent to $email_to";
-} else {
-    echo "could not send email";
+if (isset($_SERVER["AH_SITE_NAME"])) {
+    $email_subject = "[".$_SERVER["AH_SITE_NAME"] . "." . $_SERVER["AH_SITE_ENVIRONMENT"]."]"." - Cloudflare DNS configuration";
 }
+
+if($debug_only) {
+    echo "!!! DEBUG ONLY !!! No email will be sent, it's only for debug purposes.\n\n";
+
+    echo "recipients: $email_to\n\n";
+
+    echo "email body: \n\n $email_body";
+
+} else {
+    if(mail($email_to, $email_subject, $email_body)) {
+        echo "email sent to $email_to";
+    } else {
+        echo "could not send email";
+    }    
+}
+
 
 exit(0);
 
